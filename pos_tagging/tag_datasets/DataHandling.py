@@ -37,9 +37,9 @@ class AnnPosDataset(Dataset):
                 pastContextIds, currWordId, futureContextIds = self.__getContext(sentence, i, data.vocabulary)
 
                 X.append(pastContextIds + [currWordId] + futureContextIds)
-                y.append(torch.zeros(len(data.classes)))
+                y.append(torch.zeros(len(self.classes)))
                 y[-1][data.classes[sentence[i][2]]] = 1
-        
+
         X = torch.tensor(X, dtype=torch.long)
         y = torch.stack(y)
 

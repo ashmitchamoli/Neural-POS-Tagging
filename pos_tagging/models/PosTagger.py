@@ -10,6 +10,10 @@ from models.ANN import AnnClassifier
 import torch
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, f1_score, accuracy_score, precision_score, recall_score
+import hashlib
+import pickle
+
+MODEL_SAVE_PATH = './model_checkpoints'
 
 class NeuralPosTagger:
     def __init__(self, trainData : TagDataset, devData : TagDataset) -> None:
@@ -25,6 +29,7 @@ class AnnPosTagger(NeuralPosTagger):
 
         self.contextSize = contextSize
         self.batchSize = batchSize
+        self.embeddingSize = embeddingSize
 
         # inverse class dictionary
         self.trainData.indexClassDict = { value: key for key, value in trainData.classes.items() }
@@ -39,10 +44,11 @@ class AnnPosTagger(NeuralPosTagger):
                                         outChannels=self.outputSize,
                                         hiddenLayers=self.hiddenLayers,
                                         activation=self.activation)
-    
+
+        self.strConfig = str(self.contextSize) + str(self.activation) + str(self.embeddingSize) + str(self.hiddenLayers) + str(self.batchSize) + str(self.outputSize)
+
     def train(self, epochs : int, learningRate : float) -> None:
         criterion = torch.nn.CrossEntropyLoss()
-        # optimizer = torch.optim.Adam(list(self.embeddingLayer.parameters()) + list(self.classifier.parameters()), lr=learningRate)
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
         
         self.trainLoss = []
@@ -52,45 +58,55 @@ class AnnPosTagger(NeuralPosTagger):
         devDataset = AnnPosDataset(self.devData, self.trainData.classes, self.contextSize)
 
         trainLoader = DataLoader(trainDataset, batch_size=self.batchSize)
-
-        # X_train, y_train = self.__prepareData(self.trainData)
-        # X_dev, y_dev = self.__prepareData(self.devData)
-        
-        # print(X_train.shape, y_train.shape)
-        # print(X_dev.shape, y_dev.shape)
+        devLoader = DataLoader(devDataset, batch_size=len(devDataset))
 
         for epoch in range(epochs):
             for X_batch, y_batch in trainLoader:
                 # forward pass
                 outputs = self.classifier(X_batch)
-                
+
                 # calculate loss
                 loss = criterion(outputs, y_batch)
                 self.trainLoss.append(loss.item())
 
-                
                 # back propagate
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-            
-            # # forward pass
-            # outputs = self.classifier(X_train)
-            
-            # # calculate loss
-            # loss = criterion(outputs, y_train)
-            # self.trainLoss.append(loss.item())
 
-            # # calculate dev loss
-            # # devOutputs = self.classifier(X_dev)
-            # # devLoss = criterion(devOutputs, y_dev)
-            # # # devLoss = criterion(self.classifier(X_dev), y_dev)
-            # # self.devLoss.append(devLoss.item())
+            for X_dev_batch, y_dev_batch in devLoader:
+                # forward pass
+                outputs = self.classifier(X_dev_batch)
 
-            # # back propagate
-            # optimizer.zero_grad()
-            # loss.backward()
-            # optimizer.step()
+                # calculate loss
+                loss = criterion(outputs, y_dev_batch)
+                self.devLoss.append(loss.item())
+        try:
+            if not os.path.exists(MODEL_SAVE_PATH):
+                os.makedirs(MODEL_SAVE_PATH)
+
+            self.saveModel(f"{MODEL_SAVE_PATH}/ann_pos_tagger_{self.getHash()}.pt")
+        except Exception as e:
+            print("Unable to save model.")
+            print(e)
+
+    def getHash(self):
+        return hashlib.sha256(self.strConfig.encode()).hexdigest()
+
+    def saveModel(self, path : str) -> None:
+        torch.save(self.classifier.state_dict(), path)
+
+    def loadFromCheckpoint(self) -> None:
+        for filename in os.listdir(MODEL_SAVE_PATH):
+            f = os.path.join(MODEL_SAVE_PATH, filename)
+
+            if os.path.isfile(f):
+                modelHash = f.rstrip('.pt').lstrip(os.path.join(MODEL_SAVE_PATH, 'ann_pos_tagger_'))
+                if self.getHash() == modelHash:
+                    self.classifier.load_state_dict(torch.load(f))
+                    return "Successfully Loaded Model."
+        
+        return "No saved checkpoint found."
 
     def __getContext(self, sentence : list[tuple[int, str, str]], i : int, vocabulary : dict[str, int]) -> list[int]:
         pastContextIds = [0] * max(0, self.contextSize - i) + \
