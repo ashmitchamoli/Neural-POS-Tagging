@@ -58,29 +58,24 @@ class AnnPosTagger(NeuralPosTagger):
         devDataset = AnnPosDataset(self.devData, self.trainData.classes, self.contextSize)
 
         trainLoader = DataLoader(trainDataset, batch_size=self.batchSize)
-        devLoader = DataLoader(devDataset, batch_size=len(devDataset))
 
         for epoch in range(epochs):
+            runningLoss = 0
             for X_batch, y_batch in trainLoader:
                 # forward pass
                 outputs = self.classifier(X_batch)
 
                 # calculate loss
                 loss = criterion(outputs, y_batch)
-                self.trainLoss.append(loss.item())
-
+                
                 # back propagate
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-            for X_dev_batch, y_dev_batch in devLoader:
-                # forward pass
-                outputs = self.classifier(X_dev_batch)
+            self.trainLoss.append(criterion(self.classifier(trainDataset.X), trainDataset.y).item())
+            self.devLoss.append(criterion(self.classifier(devDataset.X), devDataset.y).item())
 
-                # calculate loss
-                loss = criterion(outputs, y_dev_batch)
-                self.devLoss.append(loss.item())
         try:
             if not os.path.exists(MODEL_SAVE_PATH):
                 os.makedirs(MODEL_SAVE_PATH)
