@@ -1,7 +1,13 @@
 import torch
 
 class AnnClassifier(torch.nn.Module):
-    def __init__(self, vocabSize : int, embeddingSize : int, contextSize : int, outChannels : int, hiddenLayers : list[int], activation : str) -> None:
+    def __init__(self, vocabSize : int, 
+                 embeddingSize : int, 
+                 futureContextSize : int, 
+                 pastContextSize : int,
+                 outChannels : int, 
+                 hiddenLayers : list[int], 
+                 activation : str) -> None:
         super().__init__()
 
         if activation == 'relu':
@@ -13,7 +19,7 @@ class AnnClassifier(torch.nn.Module):
 
         self.embeddingLayer = torch.nn.Embedding(vocabSize, embeddingSize)
 
-        inChannels = embeddingSize * (2 * contextSize + 1)
+        inChannels = embeddingSize * (pastContextSize + futureContextSize + 1)
         self.feedForward = torch.nn.Sequential()
         self.nHiddenLayers = len(hiddenLayers)
         for i in range(self.nHiddenLayers):

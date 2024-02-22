@@ -6,7 +6,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 from tag_datasets.TagData import TagDataset
 from tag_datasets.DataHandling import AnnPosDataset, RnnPosDataset
 from models.ANN import AnnClassifier
-from models.RNN import RnnClassifier
+from models.RNN import RnnClassifier, LstmClassifier
 
 import torch
 from torch.utils.data import DataLoader
@@ -16,6 +16,7 @@ import pickle
 
 ANN_MODEL_SAVE_DIR = './model_checkpoints/ann/'
 RNN_MODEL_SAVE_DIR = './model_checkpoints/rnn/'
+LSTM_MODEL_SAVE_DIR = './model_checkpoints/lstm/'
 
 _SUCCESS = True
 _FAILURE = False
@@ -65,91 +66,9 @@ class NeuralPosTagger:
                 modelHash = f.rstrip('.pt').lstrip(os.path.join(self.MODEL_SAVE_DIR, 'ann_pos_tagger_'))
                 if selfHash == modelHash:
                     self.classifier.load_state_dict(torch.load(f))
-                    return _FAILURE
+                    return _SUCCESS
 
-        return _SUCCESS
-
-
-class AnnPosTagger(NeuralPosTagger):
-    def __init__(self, trainData : TagDataset, devData : TagDataset, contextSize : int = 2, activation : str = 'relu', embeddingSize : int = 128, hiddenLayers : list[int] = [128], batchSize : int = 64) -> None:
-        """
-        activation : 'relu', 'sigmoid', 'tanh'.
-        """
-        super().__init__(trainData, devData, activation, embeddingSize, batchSize)
-
-        self.contextSize = contextSize
-        self.MODEL_SAVE_DIR = ANN_MODEL_SAVE_DIR
-
-        # classifier
-        self.outputSize = len(self.trainData.classes)
-        self.hiddenLayers = hiddenLayers
-        self.classifier = AnnClassifier(vocabSize=self.vocabSize,
-                                        embeddingSize=embeddingSize,
-                                        contextSize=self.contextSize,
-                                        outChannels=self.outputSize,
-                                        hiddenLayers=self.hiddenLayers,
-                                        activation=self.activation)
-
-        self.strConfig = str(self.contextSize) + str(self.activation) + str(self.embeddingSize) + str(self.hiddenLayers) + str(self.batchSize) + str(self.outputSize)
-
-    def train(self, epochs : int, learningRate : float) -> None:
-        criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
-        
-        self.trainLoss = []
-        self.devLoss = []
-
-        trainDataset = AnnPosDataset(self.trainData, self.classes, self.contextSize, self.vocabulary)
-        devDataset = AnnPosDataset(self.devData, self.trainData.classes, self.contextSize, self.vocabulary)
-
-        trainLoader = DataLoader(trainDataset, batch_size=self.batchSize)
-
-        for epoch in range(epochs):
-            for X_batch, y_batch in trainLoader:
-                # forward pass
-                outputs = self.classifier(X_batch)
-
-                # calculate loss
-                loss = criterion(outputs, y_batch)
-                
-                # back propagate
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-            self.trainLoss.append(criterion(self.classifier(trainDataset.X), trainDataset.y).item())
-            self.devLoss.append(criterion(self.classifier(devDataset.X), devDataset.y).item())
-
-        self.saveModel()
-
-    def __getContext(self, sentence : list[tuple[int, str, str]], i : int, vocabulary : dict[str, int]) -> list[int]:
-        pastContextIds = [0] * max(0, self.contextSize - i) + \
-                            [ vocabulary[word[1]] for word in sentence[max(0, i - self.contextSize) : i] ]
-
-        currWordId = vocabulary[sentence[i][1]]
-
-        futureContextIds = [ vocabulary[word[1]] for word in sentence[i+1 : min(len(sentence) - 1, i + self.contextSize + 1)] ]
-        futureContextIds = futureContextIds + [0] * max(0, self.contextSize - len(futureContextIds))
-
-        return pastContextIds, currWordId, futureContextIds
-
-    def predict(self, sentence : list[str]) -> list[str]:
-        preds = []
-        
-        newSentence = [ (0, word if word in self.vocabulary else "<UNK>", "") for word in sentence ]
-        for i in range(len(newSentence)):
-
-            pastContextIds, currWordId, futureContextIds = self.__getContext(newSentence, i, self.vocabulary)
-
-            x = pastContextIds + [currWordId] + futureContextIds
-            x = torch.tensor(x, dtype=torch.long).reshape(1, -1)
-            outputs = self.classifier(x)
-
-            y_pred = outputs.argmax()
-
-            preds.append(self.indexClassDict[y_pred.item()])
-
-        return preds
+        return _FAILURE
 
     def evaluateModel(self, testData : TagDataset) -> float:
         preds = []
@@ -175,6 +94,102 @@ class AnnPosTagger(NeuralPosTagger):
 
         return self.scores
 
+class AnnPosTagger(NeuralPosTagger):
+    def __init__(self, trainData : TagDataset, devData : TagDataset, futureContextSize : int = 2, pastContextSize : int = 2, activation : str = 'relu', embeddingSize : int = 128, hiddenLayers : list[int] = [128], batchSize : int = 64) -> None:
+        """
+        activation : 'relu', 'sigmoid', 'tanh'.
+        """
+        super().__init__(trainData, devData, activation, embeddingSize, batchSize)
+
+        self.futureContextSize = futureContextSize
+        self.pastContextSize = pastContextSize
+
+        self.MODEL_SAVE_DIR = ANN_MODEL_SAVE_DIR
+
+        # classifier
+        self.outputSize = len(self.trainData.classes)
+        self.hiddenLayers = hiddenLayers
+        self.classifier = AnnClassifier(vocabSize=self.vocabSize,
+                                        embeddingSize=embeddingSize,
+                                        futureContextSize=self.futureContextSize,
+                                        pastContextSize=self.pastContextSize,
+                                        outChannels=self.outputSize,
+                                        hiddenLayers=self.hiddenLayers,
+                                        activation=self.activation)
+
+        self.strConfig = str(self.futureContextSize) + str(self.pastContextSize) + str(self.activation) + str(self.embeddingSize) + str(self.hiddenLayers) + str(self.batchSize) + str(self.outputSize)
+
+    def train(self, epochs : int, learningRate : float, verbose : bool = False) -> None:
+        criterion = torch.nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
+        
+        self.trainLoss = []
+        self.devLoss = []
+
+        trainDataset = AnnPosDataset(self.trainData, self.classes, self.futureContextSize, self.pastContextSize, self.vocabulary)
+        devDataset = AnnPosDataset(self.devData, self.trainData.classes, self.futureContextSize, self.pastContextSize, self.vocabulary)
+
+        trainLoader = DataLoader(trainDataset, batch_size=self.batchSize)
+        devLoader = DataLoader(devDataset, batch_size=len(devDataset))
+
+        for epoch in range(epochs):
+            runningLoss = 0
+            for X_batch, y_batch in trainLoader:
+                # forward pass
+                outputs = self.classifier(X_batch)
+
+                # calculate loss
+                loss = criterion(outputs, y_batch)
+                runningLoss += loss.item() 
+
+                # back propagate
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+            self.trainLoss.append(runningLoss / len(trainLoader))
+
+            for X_batch, y_batch in devLoader:
+                # forward pass
+                outputs = self.classifier(X_batch)
+
+                # calculate loss
+                loss = criterion(outputs, y_batch)
+                self.devLoss.append(loss.item())
+
+        self.saveModel()
+
+    def __getContext(self, sentence : list[tuple[int, str, str]], i : int, vocabulary : dict[str, int]) -> list[int]:
+        pastContextIds = [0] * max(0, self.pastContextSize - i) + \
+                            [ vocabulary[word[1]] for word in sentence[max(0, i - self.pastContextSize) : i] ]
+
+        currWordId = vocabulary[sentence[i][1]]
+
+        futureContextIds = [ vocabulary[word[1]] for word in sentence[i+1 : min(len(sentence) - 1, i + self.futureContextSize + 1)] ]
+        futureContextIds = futureContextIds + [0] * max(0, self.futureContextSize - len(futureContextIds))
+
+        return pastContextIds, currWordId, futureContextIds
+
+    def predict(self, sentence : list[str]) -> list[str]:
+        preds = []
+        
+        newSentence = [ (0, word if word in self.vocabulary else "<UNK>", "") for word in sentence ]
+        for i in range(len(newSentence)):
+
+            pastContextIds, currWordId, futureContextIds = self.__getContext(newSentence, i, self.vocabulary)
+
+            x = pastContextIds + [currWordId] + futureContextIds
+            
+            with torch.no_grad():
+                x = torch.tensor(x, dtype=torch.long).reshape(1, -1)
+                outputs = self.classifier(x)
+
+            y_pred = outputs.argmax()
+
+            preds.append(self.indexClassDict[y_pred.item()])
+
+        return preds
+
 class RnnPosTagger(NeuralPosTagger):
     def __init__(self, trainData : TagDataset, devData : TagDataset, activation : str = 'relu', embeddingSize : int = 128, hiddenSize : int = 128, numLayers : int = 1, bidirectional : bool = False, linearHiddenLayers : list[int] = [], batchSize : int = 32) -> None:        
         
@@ -199,7 +214,7 @@ class RnnPosTagger(NeuralPosTagger):
         self.strConfig = str(self.numClasses) + str(self.vocabSize) + self.activation + str(self.embeddingSize) + \
                          str(self.hiddenSize) + str(self.numLayers) + str(self.bidirectional) + str(self.linearHiddenLayers)
     
-    def train(self, epochs : int = 5, learningRate : float = 0.001) -> None:
+    def train(self, epochs : int = 5, learningRate : float = 0.001, verbose : bool = False) -> None:
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
 
@@ -210,7 +225,7 @@ class RnnPosTagger(NeuralPosTagger):
         devDataset = RnnPosDataset(self.devData, self.classes, self.vocabulary)
 
         trainLoader = DataLoader(trainDataset, batch_size=self.batchSize, collate_fn=trainDataset.collate_fn)
-        devLoader = DataLoader(devDataset, batch_size=self.batchSize, collate_fn=devDataset.collate_fn)
+        devLoader = DataLoader(devDataset, batch_size=len(devDataset), collate_fn=devDataset.collate_fn)
 
         for epoch in range(epochs):
             runningLoss = 0
@@ -226,13 +241,54 @@ class RnnPosTagger(NeuralPosTagger):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
-                print(outputs.shape, y_batch.shape)
             
             self.trainLoss.append(runningLoss / len(trainLoader))
+
             for X, y in devLoader:
                 outputs = self.classifier(X)
                 loss = criterion(outputs, y)
                 self.devLoss.append(loss.item())
 
+            devAccuracy = self.evaluateModel(self.devData)['accuracy']
+            if verbose:
+                print(f"Epoch {epoch+1} | Train Loss: {self.trainLoss[-1]:.3f} | Dev Loss: {self.devLoss[-1]:.3f} | Dev Accuracy: {devAccuracy:.3f}")
+
         self.saveModel()
+
+    def predict(self, sentence : list[str]) -> list[str]:
+        tokenIds = []
+        for i in range(len(sentence)):
+            if sentence[i] not in self.vocabulary:
+                sentence[i] = "<UNK>"
+            tokenIds.append(self.vocabulary[sentence[i]])
+        
+        with torch.no_grad():
+            tokenIds = torch.tensor(tokenIds, dtype=torch.long).reshape(1, -1)
+            outputs = self.classifier(tokenIds)[0]
+
+        y_pred = torch.argmax(outputs, dim=1)
+
+        # return y_pred
+        return [ self.indexClassDict[y.item()] for y in y_pred ]
+
+
+class LstmPosTagger(RnnPosTagger):
+    def __init__(self, trainData : TagDataset, 
+                 devData : TagDataset, 
+                 activation : str = 'relu', 
+                 embeddingSize : int = 128, 
+                 hiddenSize : int = 128, 
+                 numLayers : int = 1, 
+                 bidirectional : bool = False, 
+                 linearHiddenLayers : list[int] = [], 
+                 batchSize : int = 32) -> None:
+        super().__init__(trainData, devData, activation, embeddingSize, hiddenSize, numLayers, bidirectional, linearHiddenLayers, batchSize)
+
+        self.MODEL_SAVE_DIR = LSTM_MODEL_SAVE_DIR
+        self.classifier = LstmClassifier(self.vocabSize,
+                                         self.embeddingSize,
+                                         self.numClasses,
+                                         self.hiddenSize,
+                                         self.numLayers,
+                                         self.bidirectional,
+                                         self.linearHiddenLayers)
