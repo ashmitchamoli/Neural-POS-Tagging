@@ -10,7 +10,7 @@ from models.RNN import RnnClassifier, LstmClassifier
 
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import classification_report, f1_score, accuracy_score, precision_score, recall_score
+from sklearn.metrics import classification_report, f1_score, accuracy_score, precision_score, recall_score, confusion_matrix
 import hashlib
 import pickle
 
@@ -92,6 +92,8 @@ class NeuralPosTagger:
             'f1' : f1_score(y_true, preds, average='weighted', zero_division=0)
         }
 
+        self.confusionMatrix = confusion_matrix(y_true, preds)
+
         return self.scores
 
 class AnnPosTagger(NeuralPosTagger):
@@ -119,12 +121,22 @@ class AnnPosTagger(NeuralPosTagger):
 
         self.strConfig = str(self.futureContextSize) + str(self.pastContextSize) + str(self.activation) + str(self.embeddingSize) + str(self.hiddenLayers) + str(self.batchSize) + str(self.outputSize)
 
-    def train(self, epochs : int, learningRate : float, verbose : bool = False) -> None:
+    def train(self, epochs : int, learningRate : float, verbose : bool = False, retrain : bool = False) -> None:
+        if retrain == False:
+            if self.loadFromCheckpoint() == _SUCCESS:
+                if verbose:
+                    print("Model loaded from checkpoint.")
+                return
+            else:
+                if verbose:
+                    print("Model checkpoint not found. Commencing training...")
+
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
         
         self.trainLoss = []
         self.devLoss = []
+        self.devAccuracy = []
 
         trainDataset = AnnPosDataset(self.trainData, self.classes, self.futureContextSize, self.pastContextSize, self.vocabulary)
         devDataset = AnnPosDataset(self.devData, self.trainData.classes, self.futureContextSize, self.pastContextSize, self.vocabulary)
@@ -149,13 +161,10 @@ class AnnPosTagger(NeuralPosTagger):
 
             self.trainLoss.append(runningLoss / len(trainLoader))
 
-            for X_batch, y_batch in devLoader:
-                # forward pass
-                outputs = self.classifier(X_batch)
+            self.devAccuracy.append(self.evaluateModel(self.devData)['accuracy'])
+            if verbose:
+                print(f"Epoch {epoch + 1}: train loss = {round(self.trainLoss[-1], 4)}, dev loss = {round(self.devLoss[-1], 4)}, dev accuracy = {round(self.devAccuracy[-1], 4)}")
 
-                # calculate loss
-                loss = criterion(outputs, y_batch)
-                self.devLoss.append(loss.item())
 
         self.saveModel()
 
@@ -214,12 +223,23 @@ class RnnPosTagger(NeuralPosTagger):
         self.strConfig = str(self.numClasses) + str(self.vocabSize) + self.activation + str(self.embeddingSize) + \
                          str(self.hiddenSize) + str(self.numLayers) + str(self.bidirectional) + str(self.linearHiddenLayers)
     
-    def train(self, epochs : int = 5, learningRate : float = 0.001, verbose : bool = False) -> None:
+    def train(self, epochs : int = 5, learningRate : float = 0.001, verbose : bool = False, retrain : bool = False) -> None:
+
+        if retrain == False:
+            if self.loadFromCheckpoint() == _SUCCESS:
+                if verbose:
+                    print("Model loaded from checkpoint.")
+                return
+            else:
+                if verbose:
+                    print("Model checkpoint not found. Commencing training...")
+        
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learningRate)
 
         self.trainLoss = []
         self.devLoss = []
+        self.devAccuracy = []
 
         trainDataset = RnnPosDataset(self.trainData, self.classes, self.vocabulary)
         devDataset = RnnPosDataset(self.devData, self.classes, self.vocabulary)
@@ -228,21 +248,52 @@ class RnnPosTagger(NeuralPosTagger):
         devLoader = DataLoader(devDataset, batch_size=len(devDataset), collate_fn=devDataset.collate_fn)
 
         for epoch in range(epochs):
-            runningLoss = 0
-            for X_batch, y_batch in trainLoader:
+            self.trainLoss.append(0)
+            for sentence in self.trainData.dataset:
+                tokenIds = []
+                tagIds = []
+                for word in sentence:
+                    tokenIds.append(self.vocabulary[word[1]])
+                    tagIds.append(self.classes[word[2]])
+                
+                x = torch.tensor(tokenIds, dtype=torch.long).reshape(1, -1)
+                y = torch.zeros(size=(len(tagIds), self.numClasses))
+                for i in range(len(tagIds)):
+                    y[i][tagIds[i]] = 1
+                
                 # forward pass
-                outputs = self.classifier(X_batch)
+                outputs = self.classifier(x)[0]
+
+                # print(outputs.shape, outputs[0][0])
+                # print(y.shape, y[0][0])
 
                 # calculate loss
-                loss = criterion(outputs, y_batch)
-                runningLoss += loss.item()
+                loss = criterion(outputs, y)
+                self.trainLoss[-1] += loss.item()
 
                 # back prop
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+            self.trainLoss[-1] /= len(self.trainData.dataset)       
             
-            self.trainLoss.append(runningLoss / len(trainLoader))
+            # ! see what's wrong with the data loader and the RnnPosDataset class inside /pos_tagging/tag_datasets/DataHandling.py
+            # runningLoss = 0
+            # for X_batch, y_batch in trainLoader:
+            #     # forward pass
+            #     outputs = self.classifier(X_batch)
+
+            #     # calculate loss
+            #     loss = criterion(outputs, y_batch)
+            #     runningLoss += loss.item()
+
+            #     # back prop
+            #     optimizer.zero_grad()
+            #     loss.backward()
+            #     optimizer.step()
+            
+            # self.trainLoss.append(runningLoss / len(trainLoader))
 
             for X, y in devLoader:
                 outputs = self.classifier(X)
@@ -250,8 +301,9 @@ class RnnPosTagger(NeuralPosTagger):
                 self.devLoss.append(loss.item())
 
             devAccuracy = self.evaluateModel(self.devData)['accuracy']
+            self.devAccuracy.append(devAccuracy)
             if verbose:
-                print(f"Epoch {epoch+1} | Train Loss: {self.trainLoss[-1]:.3f} | Dev Loss: {self.devLoss[-1]:.3f} | Dev Accuracy: {devAccuracy:.3f}")
+                print(f"Epoch {epoch+1} | Train Loss: {self.trainLoss[-1]:.3f} | Dev Accuracy: {devAccuracy:.3f}")
 
         self.saveModel()
 

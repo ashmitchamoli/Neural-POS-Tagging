@@ -8,7 +8,6 @@ class BaseClassifier(torch.nn.Module):
                  numLayers : int,
                  bidirectional : bool,
                  linearHiddenLayers : list[int]) -> None:
-        
         super().__init__()
 
         self.vocabSize = vocabSize
@@ -62,7 +61,6 @@ class RnnClassifier(BaseClassifier):
 
     def forward(self, x):
         x = self.embeddingLayer(x)
-        # print(x.shape)
         outputs, _ = self.rnn(x, torch.zeros(size=(self.numLayers * (1 + self.bidirectional), x.shape[0], self.hiddenEmbeddingSize)))
         return self.linearClassifier(outputs)
     

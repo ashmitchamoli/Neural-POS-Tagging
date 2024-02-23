@@ -12,14 +12,15 @@ model = None
 if sys.argv[1] == '-f':
     model = AnnPosTagger(trainData,
                          devData,
-                         contextSize=2, 
-                         activation='relu', 
+                         futureContextSize=1,
+                         pastContextSize=1,
+                         activation='sigmoid', 
                          embeddingSize=128,
-                         hiddenLayers=[32],
+                         hiddenLayers=[64],
                          batchSize=128)
 
     status = model.loadFromCheckpoint()
-    # print(status)
+
 if sys.argv[1] == '-r':
     model = RnnPosTagger(trainData,
                         devData,
@@ -34,7 +35,7 @@ if sys.argv[1] == '-r':
     status = model.loadFromCheckpoint()
 
 if status == False:
-    model.train(epochs=20, learningRate=0.001, verbose=False)
+    model.train(epochs=20, learningRate=0.001, verbose=True)
 
 sentence = input()
 tokenizedSentence = [ word.lower() for word in list(nltk.word_tokenize(sentence)) ]
