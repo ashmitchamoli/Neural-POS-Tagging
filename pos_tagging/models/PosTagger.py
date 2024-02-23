@@ -52,7 +52,7 @@ class NeuralPosTagger:
             print("Unable to save model.")
             print(e)
             return _FAILURE
-        
+
         torch.save(self.classifier.state_dict(), path)
         return _SUCCESS
 
@@ -61,9 +61,10 @@ class NeuralPosTagger:
 
         for filename in os.listdir(self.MODEL_SAVE_DIR):
             f = os.path.join(self.MODEL_SAVE_DIR, filename)
-
             if os.path.isfile(f):
-                modelHash = f.rstrip('.pt').lstrip(os.path.join(self.MODEL_SAVE_DIR, 'ann_pos_tagger_'))
+                modelHash = f[len(os.path.join(self.MODEL_SAVE_DIR, 'ann_pos_tagger_')):-3]
+                # print(f, selfHash)
+                # print((os.path.join(self.MODEL_SAVE_DIR, 'ann_pos_tagger_')))
                 if selfHash == modelHash:
                     self.classifier.load_state_dict(torch.load(f))
                     return _SUCCESS
@@ -92,7 +93,7 @@ class NeuralPosTagger:
             'f1' : f1_score(y_true, preds, average='weighted', zero_division=0)
         }
 
-        self.confusionMatrix = confusion_matrix(y_true, preds)
+        self.confusionMatrix = confusion_matrix(y_true, preds, labels=list(self.classes.keys()))
 
         return self.scores
 
@@ -161,10 +162,17 @@ class AnnPosTagger(NeuralPosTagger):
 
             self.trainLoss.append(runningLoss / len(trainLoader))
 
+            with torch.no_grad():
+                runningLoss = 0
+                for X_batch, y_batch in devLoader:
+                    outputs = self.classifier(X_batch)
+                    loss = criterion(outputs, y_batch)
+                    runningLoss += loss.item()
+                self.devLoss.append(runningLoss / len(devLoader))
+
             self.devAccuracy.append(self.evaluateModel(self.devData)['accuracy'])
             if verbose:
                 print(f"Epoch {epoch + 1}: train loss = {round(self.trainLoss[-1], 4)}, dev loss = {round(self.devLoss[-1], 4)}, dev accuracy = {round(self.devAccuracy[-1], 4)}")
-
 
         self.saveModel()
 
@@ -241,11 +249,11 @@ class RnnPosTagger(NeuralPosTagger):
         self.devLoss = []
         self.devAccuracy = []
 
-        trainDataset = RnnPosDataset(self.trainData, self.classes, self.vocabulary)
-        devDataset = RnnPosDataset(self.devData, self.classes, self.vocabulary)
+        # trainDataset = RnnPosDataset(self.trainData, self.classes, self.vocabulary)
+        # devDataset = RnnPosDataset(self.devData, self.classes, self.vocabulary)
 
-        trainLoader = DataLoader(trainDataset, batch_size=self.batchSize, collate_fn=trainDataset.collate_fn)
-        devLoader = DataLoader(devDataset, batch_size=len(devDataset), collate_fn=devDataset.collate_fn)
+        # trainLoader = DataLoader(trainDataset, batch_size=self.batchSize, collate_fn=trainDataset.collate_fn)
+        # devLoader = DataLoader(devDataset, batch_size=len(devDataset), collate_fn=devDataset.collate_fn)
 
         for epoch in range(epochs):
             self.trainLoss.append(0)
@@ -295,10 +303,10 @@ class RnnPosTagger(NeuralPosTagger):
             
             # self.trainLoss.append(runningLoss / len(trainLoader))
 
-            for X, y in devLoader:
-                outputs = self.classifier(X)
-                loss = criterion(outputs, y)
-                self.devLoss.append(loss.item())
+            # for X, y in devLoader:
+            #     outputs = self.classifier(X)
+            #     loss = criterion(outputs, y)
+            #     self.devLoss.append(loss.item())
 
             devAccuracy = self.evaluateModel(self.devData)['accuracy']
             self.devAccuracy.append(devAccuracy)
@@ -337,10 +345,14 @@ class LstmPosTagger(RnnPosTagger):
         super().__init__(trainData, devData, activation, embeddingSize, hiddenSize, numLayers, bidirectional, linearHiddenLayers, batchSize)
 
         self.MODEL_SAVE_DIR = LSTM_MODEL_SAVE_DIR
-        self.classifier = LstmClassifier(self.vocabSize,
-                                         self.embeddingSize,
-                                         self.numClasses,
-                                         self.hiddenSize,
-                                         self.numLayers,
-                                         self.bidirectional,
-                                         self.linearHiddenLayers)
+        self.classifier = LstmClassifier(vocabSize=self.vocabSize,
+                                         embeddingSize=self.embeddingSize,
+                                         outChannels=self.numClasses,
+                                         hiddenEmbeddingSize=self.hiddenSize,
+                                         numLayers=self.numLayers,
+                                         bidirectional=self.bidirectional,
+                                         linearHiddenLayers=self.linearHiddenLayers,
+                                         activation=self.activation)
+        
+        self.strConfig = str(self.numClasses) + str(self.vocabSize) + self.activation + str(self.embeddingSize) + \
+                         str(self.hiddenSize) + str(self.numLayers) + str(self.bidirectional) + str(self.linearHiddenLayers)

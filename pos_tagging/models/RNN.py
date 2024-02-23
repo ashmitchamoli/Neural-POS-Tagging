@@ -7,7 +7,8 @@ class BaseClassifier(torch.nn.Module):
                  hiddenEmbeddingSize : int, 
                  numLayers : int,
                  bidirectional : bool,
-                 linearHiddenLayers : list[int]) -> None:
+                 linearHiddenLayers : list[int],
+                 activation : str) -> None:
         super().__init__()
 
         self.vocabSize = vocabSize
@@ -17,6 +18,12 @@ class BaseClassifier(torch.nn.Module):
         self.numLayers = numLayers
         self.bidirectional = bidirectional
         self.linearHiddenLayers = linearHiddenLayers
+        self.activation = activation
+        
+        if self.activation == 'tanh':
+            self.activationFn = torch.nn.Tanh()
+        elif self.activation == 'relu':
+            self.activationFn = torch.nn.ReLU()
 
         self.embeddingLayer = torch.nn.Embedding(vocabSize, embeddingSize)
 
@@ -28,7 +35,7 @@ class BaseClassifier(torch.nn.Module):
             if i == len(self.linearHiddenLayers) - 1:
                 self.linearClassifier.append(torch.nn.Softmax(dim=1))
             else:
-                self.linearClassifier.append(torch.nn.ReLU())
+                self.linearClassifier.append(self.activationFn)
         
         if len(self.linearHiddenLayers) == 0:
             linearLayer = torch.nn.Linear( self.hiddenEmbeddingSize * (int(self.bidirectional) + 1),
@@ -49,9 +56,8 @@ class RnnClassifier(BaseClassifier):
         activation: 'relu', 'tanh'.
         linearHiddenLayers: list of hidden layer sizes for the linear classifier.
         """
-        super().__init__(vocabSize, embeddingSize, outChannels, hiddenEmbeddingSize, numLayers, bidirectional, linearHiddenLayers)
+        super().__init__(vocabSize, embeddingSize, outChannels, hiddenEmbeddingSize, numLayers, bidirectional, linearHiddenLayers, activation)
         
-        self.activation = activation
         self.rnn = torch.nn.RNN(input_size=self.embeddingSize,
                                 hidden_size=self.hiddenEmbeddingSize,
                                 num_layers=self.numLayers,
@@ -71,14 +77,20 @@ class LstmClassifier(BaseClassifier):
                  hiddenEmbeddingSize : int, 
                  numLayers : int = 1,
                  bidirectional : bool = False,
+                 activation : str = 'relu',
                  linearHiddenLayers : list[int] = []) -> None:
-        super().__init__(vocabSize, embeddingSize, outChannels, hiddenEmbeddingSize, numLayers, bidirectional, linearHiddenLayers)
+        """
+        activation: 'relu', 'tanh'. activation to be used in the linear decoder layer.
+        linearHiddenLayers: list of hidden layer sizes for the linear classifier.
+        """
+        super().__init__(vocabSize, embeddingSize, outChannels, hiddenEmbeddingSize, numLayers, bidirectional, linearHiddenLayers, activation)
 
         self.lstm = torch.nn.LSTM(input_size=self.embeddingSize,
                                   hidden_size=self.hiddenEmbeddingSize,
                                   num_layers=self.numLayers,
                                   batch_first=True,
                                   bidirectional=self.bidirectional)
+        
     
     def forward(self, x):
         x = self.embeddingLayer(x)

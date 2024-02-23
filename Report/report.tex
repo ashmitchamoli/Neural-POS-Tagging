@@ -1,0 +1,152 @@
+\documentclass[a4paper,9pt]{report}
+
+\usepackage{subfig}
+\usepackage{float}
+\usepackage[myheadings]{fullpage}
+\usepackage{fancyhdr}
+% \usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{bbold}
+
+\newcommand{\HRule}[1]{\rule{\linewidth}{#1}}
+
+\pagestyle{fancy}
+\fancyhf{}
+\setlength\headheight{15pt}
+\fancyhead[R]{Introduction to Natural Language Processing}
+
+\usepackage[english]{babel}
+\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\begin{document}
+
+\title{ \normalsize \textsc{\LARGE Neural Pos Tagging}
+		\\ [2.0cm]
+		\HRule{0.5pt} \\
+		\LARGE \textbf{\uppercase{Report}}
+		\HRule{2pt} \\ [0.5cm]
+		\normalsize \vspace*{3\baselineskip}}
+        \date{ }
+
+\author{Ashmit Chamoli\\ }
+
+\maketitle
+\section*{Introduction}
+The report contains experiments on the dataset of Ulyess and the dataset of Pride and Prejudice.
+ 
+\begin{align*}
+    PP[S] = [\prod_{i=N}^{|S|} P(w_i | w_{i-1}, ..., w_{i-N+1}) \cdot P(w_1) \cdot P(w_2 | w_1) \cdot ... \cdot P(w_{N-1} | w_{N-2}, ..., w_1)] ^{\frac{-1}{|S|}}
+\end{align*}
+
+We use 2 smoothing techniques for our N-gram model:
+\begin{itemize}
+    \item Good Turing Smoothing
+    \item Linear Interpolation
+\end{itemize}
+
+\section*{Smoothing Implementation}
+\subsection*{Good Turing Smoothing}
+According to the Good Turing estimate,
+\begin{align*}
+    p_0 &= \frac{N_1}{N} \\
+    p_r &= \frac{r^*}{N} \\
+    r^* &= (r+1) \cdot \frac{N_{r+1}}{N_r}
+\end{align*}
+Where $N_r$ is the number of species with frequency $r$ and $N = \sum r \cdot N_r$ i.e. the total number of species..
+Here, $p_r$ is the estimate for the probability of seeing a species with frequency $r$. Therefore, $p_0$ gives us an estimate of the probability of seeing a species with frequency 0 i.e. unseen species.
+
+Using these estimates, we can calculate the probability $P(w | w_1, w_2)$ as follows,
+\[
+    P(w | w_1, w_2) = 
+    \begin{cases}
+        \frac{N_1}{(\sum r^* + N_1) \cdot (|V| - B)}, & w_1w_2w \notin Z \\
+        \frac{r^*}{\sum r^* + N_1}, & w_1w_2w \in Z
+    \end{cases}
+\]
+Where $r$ is the frequency of 3-gram $w_1w_2w$ in the corpus, $Z$ is the set of all 3-grams in the corpus, $V$ is the vocabulary and $B = |\{w | w_1w_2w \in Z\}|$ i.e. $B$ is the number of unique words that appear with $w_1w_2$ in the corpus.
+
+To calculate the estimate of $r^*$ i.e. the smoothed probabilities, we perform the following steps,
+\begin{enumerate}
+    \item Calculate $Z_r$ from $N_r$ as follows:
+    $$
+        Z_r = \frac{N_r}{0.5\cdot(t-q)}
+    $$
+    and where q, r, and t are three consecutive subscripts with non-zero counts $N_q, N_r, N_t$. For the special case when $r$ is 1, take $q$ to be 0. In the opposite special case, when 
+$r = r_{last}$ is the index of the last non-zero count, replace the divisor $\frac{1}{2} (t-q)$ with $r_{last} - q$ so $Z_{r_{last}} = \frac{N_{r_{last}}}{r_{last} - q}$.
+    \item Now fit a simple linear regression model to $log(Z_r)$ and $log(r)$, $log(Z_r) = a + b \cdot log(r)$.
+    \item Now we can estimate $N_r$ as,
+        $$
+            S(N_r) = exp(a + b \cdot log(r)) 
+        $$
+\end{enumerate}
+
+\section*{Perplexity Scores}
+For each of the 2 corpora provided, we construct a test set by selecting 1000 sentences at random and a train set containing the rest of the sentences. We calculate the perplexity of each sentence and report the average over all sentences for each language model.
+
+\subsection*{LM 1: Tokenization + 3-gram LM + Good-Turing Smoothing}
+\subsubsection*{Pride and Prejudice}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Train} & {90651.12} \\
+        \hline
+        \textbf{Test} & {12722.59} \\
+        \hline
+    \end{tabular}
+\end{table}
+The high perplexity values on the test set indicate that the model is quite confused about it's prediction. The higher value of perplexity in the train set is because Good Turing smoothing assigns a very high probability to unseen n-grams which in turns results in probability of seen but low frequency n-grams to be extremely low. 
+In the test set however, we see a lot of unseen n-grams for which the good turing model returns a very high probability.
+
+\subsubsection*{Ulyess}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Train} & {215313.48} \\
+        \hline
+        \textbf{Test} & {16327.17} \\
+        \hline
+    \end{tabular}
+\end{table}
+Here similar trend is followed, except that the train perplexity is much higher than we see in Pride and Prejudice. This is because of a much larger vocabulary set and a larger dataset. This results in the probability of unseen n-grams to be even higher than was the case in Pride and Prejudice dataset.
+
+\subsection*{LM 2: Tokenization + 3-gram LM + Linear Interpolation}
+\subsubsection*{Pride and Prejudice}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Train} & {27.70} \\
+        \hline
+        \textbf{Test} & {813.61} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+
+\subsubsection*{Ulyess}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        \textbf{Train} & {97.05} \\
+        \hline
+        \textbf{Test} & {2463.43} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+The perplexity in the for the train sets is quite low, indicating that the model is quite sure of it's prediction. 
+On the test sets however, the overall perplexity is much lower than we see in Good Turing, meaning that the model is performing better in this case.
+
+The perplexity scores are always higher for the Ulyess dataset as compared to the Pride and Prejudice dataset. This might be because of the richer vocabulary in the Ulyess dataset.
+
+The best performance we achieve is by LM2 on the Pride and Prejudice dataset.
+
+\end{document}
