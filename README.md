@@ -68,4 +68,6 @@ python pos_tagger.py -<model_type>
 ```
 Here, `model_type` = f for `ANN` or r for `RNN`.
 
+If a pretrained model is available, it will be loaded automatically and training will be skipped unless the `retrain` parameter is set to true excplicitly.
+
 ## Evaluation
