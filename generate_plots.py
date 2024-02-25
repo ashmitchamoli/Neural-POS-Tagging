@@ -21,7 +21,7 @@ annTagger = AnnPosTagger(trainData,
                          hiddenLayers=[64, 32],
                          batchSize=128)
 print("Training ANN model...")
-annTagger.train(epochs=20, learningRate=1e-3, verbose=True, retrain=True)
+annTagger.train(epochs=15, learningRate=1e-3, verbose=True, retrain=True)
 
 lstmTagger = LstmPosTagger(trainData,
                            devData,
@@ -57,15 +57,22 @@ def plotRnnTrainingProgress():
     plt.show()
 
 def plotConfusionMatrix():
+    annTagger.evaluateModel(testData)
+    lstmTagger.evaluateModel(testData)
+
     # Confusion matrix
     plt.figure(figsize=(13, 10))
-    sns.heatmap(annTagger.confusionMatrix, annot=True, square=True, fmt='d', cmap='Blues', vmax=200, xticklabels=lstmTagger.classes, yticklabels=lstmTagger.classes)
+    sns.heatmap(annTagger.confusionMatrix, annot=True, square=True, fmt='.2f', cmap='Blues', vmax=0.6, xticklabels=lstmTagger.classes, yticklabels=lstmTagger.classes)
     plt.title('ANN Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
     plt.show()
 
     plt.figure(figsize=(13, 10))
-    sns.heatmap(lstmTagger.confusionMatrix, annot=True, square=True, fmt='d', cmap='Blues', vmax=200, xticklabels=lstmTagger.classes, yticklabels=lstmTagger.classes)
+    sns.heatmap(lstmTagger.confusionMatrix, annot=True, square=True, fmt='.2f', cmap='Blues', vmax=0.6, xticklabels=lstmTagger.classes, yticklabels=lstmTagger.classes)
     plt.title('RNN Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
     plt.show()
 
 def trainBestModel(contextSize : int) -> None:

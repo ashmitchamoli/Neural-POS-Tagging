@@ -1,3 +1,9 @@
+# Contents
+[Neural-POS-Tagging](#neural-pos-tagging)
+- [ANN Architecture](#ann-architecture)
+- [RNN Architecture](#rnn-architecture)
+
+[Running the code](#running-the-code)
 # Neural-POS-Tagging
 This repository provides 2 different architectures for Neural PoS Tagging implemented using PyTorch.
 
@@ -60,7 +66,8 @@ Source file: [`pos_tagger/models/PosTagger.py`](./pos_tagging/models/PosTagger.p
 
 # Running the code
 ## Inference
-To test the model on a single sentence, use the file `pos_tagger.py` as follows:
+### pos_tagger.py
+To test the best performing model on a single sentence, use the file `pos_tagger.py` as follows:
 
 From the root directory of the project, run: 
 ```
@@ -70,4 +77,21 @@ Here, `model_type` = f for `ANN` or r for `RNN`.
 
 If a pretrained model is available, it will be loaded automatically and training will be skipped unless the `retrain` parameter is set to true excplicitly.
 
+The nltk library is has been used for tokenization of the input sentence.
+
+### train_model.py
+To train your own model for inference in an interactive manner, you can run the file `train_model.py` as follows:
+
+From the root directory of the project, run:
+```
+python inference.py
+```
+You will be prompted for everything needed to train the model and test it on your own sentences.
+
 ## Evaluation
+To generate various plots, run the `generate_plots.py` file from the root directory. This file will generate plots for the following:
+- ANN PoS tagger training progress: Training Loss, Dev Loss and Dev Accuracy vs Epoch.
+- RNN PoS tagger training progress: Training Loss and Dev Accuracy vs Epoch.
+- Confusion Matrix: Generated for both the models on the test set.
+- Accuracy vs Context size for the best ANN model.
+- Dev accuracy vs epochs for the top 3 RNN models.

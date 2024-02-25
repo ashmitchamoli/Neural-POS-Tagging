@@ -93,7 +93,7 @@ class NeuralPosTagger:
             'f1' : f1_score(y_true, preds, average='weighted', zero_division=0)
         }
 
-        self.confusionMatrix = confusion_matrix(y_true, preds, labels=list(self.classes.keys()))
+        self.confusionMatrix = confusion_matrix(y_true, preds, labels=list(self.classes.keys()), normalize='true')
 
         return self.scores
 

@@ -33,57 +33,107 @@
 		\normalsize \vspace*{3\baselineskip}}
         \date{ }
 
-\author{Ashmit Chamoli\\ }
+\author{Ashmit Chamoli }
 
 \maketitle
 \section*{Introduction}
-The report contains experiments on the dataset of Ulyess and the dataset of Pride and Prejudice.
- 
-\begin{align*}
-    PP[S] = [\prod_{i=N}^{|S|} P(w_i | w_{i-1}, ..., w_{i-N+1}) \cdot P(w_1) \cdot P(w_2 | w_1) \cdot ... \cdot P(w_{N-1} | w_{N-2}, ..., w_1)] ^{\frac{-1}{|S|}}
-\end{align*}
+This report contains training and testing details for neural PoS tagging architectures presented in this repository.
 
-We use 2 smoothing techniques for our N-gram model:
+Two architectures are used in this report, based on ANN and LSTM respectively. The implementation details of both these architectures can be found in the README.
+
+\section*{Dataset}
+For training, the \href{https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/11234/1-5287/ud-treebanks-v2.13.tgz}{Univeral Dependencies} dataset has been used. Specifically, the file located in the \verb|UD_English-Atis/| folder are used.
+For parsing this dataset,the \href{https://pypi.org/project/conllu/}{conllu} library has been used. 
+
+\section*{Training}
+\subsection*{ANN PoS Tagger}
+To tune the hyperparameters for this model, a grid search was performed on the following sets of hyperparameters:
 \begin{itemize}
-    \item Good Turing Smoothing
-    \item Linear Interpolation
+    \item Embedding Sizes: 128, 256, 512
+    \item Hidden Layers: [], [32], [64], [128], [128, 64], [64, 32]
+    \item Activation: RelU, Sigmoid, Tanh
+    \item Context Sizes: 0, 1, 2, 3, 4  
 \end{itemize}
+All models were trained for 15 epochs with a batch size of 128 and a learning rate of 0.001. Evaluation metrics (accuracy, precision, recall and f1-score) were evaluated on the train set, dev set and the test set for each of the 270 models trained.
 
-\section*{Smoothing Implementation}
-\subsection*{Good Turing Smoothing}
-According to the Good Turing estimate,
-\begin{align*}
-    p_0 &= \frac{N_1}{N} \\
-    p_r &= \frac{r^*}{N} \\
-    r^* &= (r+1) \cdot \frac{N_{r+1}}{N_r}
-\end{align*}
-Where $N_r$ is the number of species with frequency $r$ and $N = \sum r \cdot N_r$ i.e. the total number of species..
-Here, $p_r$ is the estimate for the probability of seeing a species with frequency $r$. Therefore, $p_0$ gives us an estimate of the probability of seeing a species with frequency 0 i.e. unseen species.
+The following were the top 5 models based on dev set f1-score:
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|}
+        \hline
+        \textbf{Rank} & \textbf{Embedding Size} & \textbf{Hidden Layer} & \textbf{Activation} & \textbf{Context Size} & \textbf{Dev F1} \\
+        \hline
+        1 & 512 & [64, 32] & 'tanh' & 3 & 0.982 \\
+        \hline                                            
+        2  & 256 & [128] & 'sigmoid' & 2 & 0.982 \\
+        \hline
+        3 & 128 & [128] & 'relu' & 2 & 0.982 \\
+        \hline
+        4 & 256 & [128] & 'tanh' & 1 & 0.982 \\
+        \hline        
+        5 & 128 & [] & 'tanh' & 1 & 0.982 \\
+        \hline
+    \end{tabular}
+\end{table}
 
-Using these estimates, we can calculate the probability $P(w | w_1, w_2)$ as follows,
-\[
-    P(w | w_1, w_2) = 
-    \begin{cases}
-        \frac{N_1}{(\sum r^* + N_1) \cdot (|V| - B)}, & w_1w_2w \notin Z \\
-        \frac{r^*}{\sum r^* + N_1}, & w_1w_2w \in Z
-    \end{cases}
-\]
-Where $r$ is the frequency of 3-gram $w_1w_2w$ in the corpus, $Z$ is the set of all 3-grams in the corpus, $V$ is the vocabulary and $B = |\{w | w_1w_2w \in Z\}|$ i.e. $B$ is the number of unique words that appear with $w_1w_2$ in the corpus.
+The following is the plot of training progress of the best ANN model:
+\begin{figure}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \includegraphics[scale=0.4]{../plots/annTrainingProgress.png}
+    }
+    \caption*{The plot shows various training metrics accross epochs. As expected all the metrics improve after each epoch.}
+\end{figure}
+This graph is expected. 
+We will now look at the confusion matrix for the best model.
+\begin{figure}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \includegraphics[scale=0.4]{../plots/annConfusionMatrix.png}
+    }
+    \caption*{The confusion matrix for the best ANN model.}
+\end{figure}
+As is evident by the confusion matrix, the model is performing really well for most classes. However the model is slightly confused between adverbs and adjectives and predicting 22\% of the adverbs as adjectives. This is an interesting observation because adverbs and adjectives are often difficult to tell apart even for humans. Another interesting observation is that the model almost never confuses adjectives for adverbs, that is, it almost always classifies adjectives correctly.
 
-To calculate the estimate of $r^*$ i.e. the smoothed probabilities, we perform the following steps,
-\begin{enumerate}
-    \item Calculate $Z_r$ from $N_r$ as follows:
-    $$
-        Z_r = \frac{N_r}{0.5\cdot(t-q)}
-    $$
-    and where q, r, and t are three consecutive subscripts with non-zero counts $N_q, N_r, N_t$. For the special case when $r$ is 1, take $q$ to be 0. In the opposite special case, when 
-$r = r_{last}$ is the index of the last non-zero count, replace the divisor $\frac{1}{2} (t-q)$ with $r_{last} - q$ so $Z_{r_{last}} = \frac{N_{r_{last}}}{r_{last} - q}$.
-    \item Now fit a simple linear regression model to $log(Z_r)$ and $log(r)$, $log(Z_r) = a + b \cdot log(r)$.
-    \item Now we can estimate $N_r$ as,
-        $$
-            S(N_r) = exp(a + b \cdot log(r)) 
-        $$
-\end{enumerate}
+Next, we will plot accuracy vs context size for the best model.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.4]{../plots/accuracyVsContextSize.png}    
+    \caption*{The plot shows accuracy vs context size for the best ANN model.}
+\end{figure}
+
+We can see that the accuracy is highest when context size is 3. A context size of 4 is too much and is probably adding noise to the data points. On the other hand a context size of lower than 3 provides less amount of information and thus the model performance decreases.
+
+\subsection*{RNN PoS Tagger}
+To tune the hyperparameters for this model, a grid search was performed on the following sets of hyperparameters:
+\begin{itemize}
+    \item Embedding Size: 128, 256
+    \item Hidden Embedding Size: 64, 128
+    \item Hidden Layers: [64], [32, 16], [64, 32]
+    \item Number of Stacks: 1, 2, 3
+\end{itemize}
+For all the models, learning rate, epochs and activation was set to 0.001, 13 and RelU respectively.
+
+The top 5 models based on dev set f1-score are:
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|c|c|}
+        \textbf{Rank} & \textbf{Embedding Size} & \textbf{Hidden Embedding Size} & \textbf{Hidden Layers} & \textbf{Number of Stacks} & \textbf{Dev F1} \\
+        \hline
+        1 & [64, 32] & 256 & 64 & 2 & 'relu' & 0.971081 \\
+        \hline
+        2 & [64, 32] & 256 & 128 & 2 & 'relu' & 0.971079 \\
+        \hline
+        3 & [64] & 128 & 128 & 2 & 'relu' & 0.971017 \\
+        \hline
+        4 & [32, 16] & 256 & 128 & 2 & 'relu' & 0.970926 \\
+        \hline
+        5 & [32, 16] & 256 & 128 & 3 & 'relu' & 0.97083 \\
+
+    \end{tabular}
+\end{table}
 
 \section*{Perplexity Scores}
 For each of the 2 corpora provided, we construct a test set by selecting 1000 sentences at random and a train set containing the rest of the sentences. We calculate the perplexity of each sentence and report the average over all sentences for each language model.
